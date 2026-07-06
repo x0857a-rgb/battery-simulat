@@ -1,0 +1,870 @@
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+#sim{display:flex;width:100%;height:660px;border-radius:12px;overflow:hidden;background:#0f1115;color:#e8e8ec;font-family:-apple-system,'Segoe UI',sans-serif;border:0.5px solid #23262e}
+#panel{width:228px;min-width:228px;padding:13px;border-right:1px solid #23262e;display:flex;flex-direction:column;gap:10px;overflow-y:auto;background:#0f1115;font-size:11px}
+#cw{flex:1;position:relative;background:#0f1115;overflow:hidden;cursor:grab}
+#cw.nickel-start{cursor:cell}
+#cw.nickel-end{cursor:crosshair}
+#cw.delete-mode{cursor:pointer}
+#cw.wire-mode{cursor:cell}
+.lbl{color:#8b8f9a;font-size:11px}
+.val{color:#5ec8ff;font-weight:600}
+.row{display:flex;justify-content:space-between;align-items:center;margin-bottom:3px}
+input[type=range]{width:100%;accent-color:#5ec8ff;cursor:pointer}
+.div{height:1px;background:#23262e;flex-shrink:0}
+select,input[type=number]{width:100%;background:#1a1d24;border:1px solid #2c2f38;color:#e8e8ec;padding:4px 6px;border-radius:5px;font-size:11px}
+.btn{width:100%;background:#23262e;border:1px solid #34384a;color:#cfd2dc;padding:5px 7px;border-radius:5px;cursor:pointer;font-size:11px;transition:background .15s}
+.btn:hover{background:#2a2d38}
+.btn.grn{background:#1f3a2e;border-color:#2e5c45;color:#a8e6c1;font-weight:600}
+.btn.grn.on{background:#3a2e1f;border-color:#5c4a2e;color:#ffd9a3}
+.btn.red{background:#2e1f1f;border-color:#5c2e2e;color:#ffb3b3}
+.btn.red.on{background:#4a1010;border-color:#993030;color:#ffcccc}
+.btn.undo{background:#1e2535;border-color:#2e4a6e;color:#7ab8ff}
+.btn.undo:disabled{opacity:.35;cursor:not-allowed}
+.btn.posw{background:#2a1515;border-color:#7a2020;color:#ff8080;font-weight:600}
+.btn.posw.on{background:#3a1010;border-color:#cc3030;color:#ffaaaa}
+.btn.negw{background:#101828;border-color:#1a3a6e;color:#6eb3ff;font-weight:600}
+.btn.negw.on{background:#081220;border-color:#2255aa;color:#99ccff}
+.btn.snap{background:#1a1e28;border-color:#3a5070;color:#8ab4d4;font-weight:600}
+.hint{font-size:10px;color:#555;line-height:1.5}
+#stats{background:#161922;border-radius:7px;padding:9px;line-height:2.1}
+#stats b{font-weight:600}
+#viewbtns{display:flex;gap:4px}
+#viewbtns button{flex:1;background:#1a1d24;border:1px solid #2c2f38;color:#8b8f9a;padding:4px 2px;border-radius:5px;cursor:pointer;font-size:10px}
+#viewbtns button.act{background:#1f3a2e;border-color:#2e5c45;color:#a8e6c1}
+.wrow{display:flex;align-items:center;gap:5px}
+.wrow .lbl{white-space:nowrap}
+.wrow input[type=range]{flex:1}
+#banner{position:absolute;top:8px;left:50%;transform:translateX(-50%);
+  background:rgba(10,12,18,.9);border:1px solid #444;border-radius:7px;
+  padding:6px 16px;font-size:11px;color:#ddd;pointer-events:none;
+  display:none;white-space:nowrap;z-index:10;letter-spacing:.01em}
+/* cell highlight ring for nickel selection */
+.cell-hl{pointer-events:none}
+</style>
+
+<div id="sim">
+<div id="panel">
+  <div>
+    <div class="row"><span class="lbl">串聯數 (S)</span><span class="val" id="sVal">4</span></div>
+    <input type="range" id="sSlider" min="1" max="12" value="4">
+  </div>
+  <div>
+    <div class="row"><span class="lbl">並聯數 (P)</span><span class="val" id="pVal">3</span></div>
+    <input type="range" id="pSlider" min="1" max="12" value="3">
+  </div>
+  <div class="div"></div>
+  <div>
+    <div class="lbl" style="margin-bottom:4px">正極方向</div>
+    <select id="orientMode">
+      <option value="up">全部朝上</option>
+      <option value="down">全部朝下</option>
+      <option value="alt-series">每串交替</option>
+      <option value="alt-parallel">每並交替</option>
+    </select>
+    <button class="btn" id="resetLayout" style="margin-top:5px">⟲ 重置排列</button>
+  </div>
+  <div class="div"></div>
+  <div>
+    <div class="lbl" style="margin-bottom:5px">📐 自動導正</div>
+    <div style="display:flex;gap:4px;margin-bottom:4px">
+      <button class="btn snap" id="snapRow" style="flex:1">整列 (Z)</button>
+      <button class="btn snap" id="snapCol" style="flex:1">整行 (X)</button>
+    </div>
+    <button class="btn snap" id="snapAll">✦ 全部整齊排列</button>
+    <div class="hint" style="margin-top:4px">移動電芯後按此對齊。</div>
+  </div>
+  <div class="div"></div>
+  <div>
+    <div class="lbl" style="margin-bottom:4px">視角</div>
+    <div id="viewbtns">
+      <button id="v3d" class="act">3D</button>
+      <button id="vtop">上視</button>
+      <button id="vbot">下視</button>
+    </div>
+    <div class="hint" style="margin-top:4px">空白拖曳旋轉・滾輪縮放</div>
+  </div>
+  <div class="div"></div>
+
+  <!-- NICKEL -->
+  <div>
+    <div class="lbl" style="margin-bottom:5px">🔧 鎳片工具</div>
+    <div style="margin-bottom:5px">
+      <div class="lbl" style="margin-bottom:2px">極耳面</div>
+      <select id="drawFace">
+        <option value="top">上極耳</option>
+        <option value="bottom">下極耳</option>
+        <option value="both">上下兩面</option>
+      </select>
+    </div>
+    <div style="margin-bottom:5px">
+      <div class="lbl" style="margin-bottom:2px">鎳片寬度</div>
+      <div class="wrow">
+        <input type="range" id="stripWidth" min="0.3" max="5" step="0.1" value="1.8" style="accent-color:#d4a23c">
+        <span class="val" id="stripWidthVal" style="min-width:28px;color:#d4a23c">1.8</span>
+      </div>
+    </div>
+    <button class="btn grn" id="toggleDraw">✏️ 開始繪製鎳片</button>
+    <button class="btn red" id="toggleDelete" style="margin-top:4px">🖱️ 點選鎳片刪除</button>
+    <div style="display:flex;gap:4px;margin-top:4px">
+      <button class="btn undo" id="undoStrip" style="flex:1" disabled>↩ 上一步</button>
+      <button class="btn red" id="clearStrips" style="flex:1">✕ 全清</button>
+    </div>
+    <div class="hint" style="margin-top:5px">
+      <b style="color:#a8e6c1">繪製</b>：點擊<b>起始電芯</b>（綠色高亮）→ 再點<b>終止電芯</b>，鎳片自動以兩顆電芯中心對齊，完全不歪斜。可走斜向。<br>
+      <b style="color:#ffb3b3">刪除</b>：點擊鎳片（紅色高亮）刪除。<br>
+      金色=正極端，銀色=負極端。
+    </div>
+  </div>
+  <div class="div"></div>
+
+  <!-- WIRES -->
+  <div>
+    <div class="lbl" style="margin-bottom:5px">⚡ 電源線</div>
+    <div style="margin-bottom:5px">
+      <button class="btn posw" id="togglePosWire">🔴 正極線：點擊開始拉線</button>
+      <div class="wrow" style="margin-top:4px">
+        <span class="lbl">粗細</span>
+        <input type="range" id="posWireThk" min="0.5" max="6" step="0.5" value="2" style="accent-color:#e53935">
+        <span class="val" id="posWireThkVal" style="color:#ff8080;min-width:20px">2</span>
+      </div>
+    </div>
+    <div style="margin-bottom:5px">
+      <button class="btn negw" id="toggleNegWire">🔵 負極線：點擊開始拉線</button>
+      <div class="wrow" style="margin-top:4px">
+        <span class="lbl">粗細</span>
+        <input type="range" id="negWireThk" min="0.5" max="6" step="0.5" value="2" style="accent-color:#1565c0">
+        <span class="val" id="negWireThkVal" style="color:#6eb3ff;min-width:20px">2</span>
+      </div>
+    </div>
+    <div style="display:flex;gap:4px">
+      <button class="btn undo" id="undoWire" style="flex:1" disabled>↩ 撤銷</button>
+      <button class="btn red" id="clearWires" style="flex:1">✕ 清除</button>
+    </div>
+    <div class="hint" style="margin-top:4px">點擊加錨點，雙擊/Enter 完成，Esc 取消。</div>
+  </div>
+  <div class="div"></div>
+
+  <div>
+    <div class="lbl" style="margin-bottom:3px">單體電壓 (V)</div>
+    <input type="number" id="cellV" step="0.1" value="3.6">
+  </div>
+  <div>
+    <div class="lbl" style="margin-bottom:3px">單體容量 (mAh)</div>
+    <input type="number" id="cellAh" step="100" value="3000">
+  </div>
+  <div class="div"></div>
+  <div id="stats">
+    <div>電池數：<b id="outCount" style="color:#fff"></b></div>
+    <div>總電壓：<b id="outV" style="color:#7CF29C"></b></div>
+    <div>總容量：<b id="outAh" style="color:#7CF29C"></b></div>
+    <div>總能量：<b id="outWh" style="color:#FFD166"></b></div>
+  </div>
+</div>
+
+<div id="cw" style="position:relative">
+  <div id="banner"></div>
+</div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+(function(){
+/* ══ RENDERER ══ */
+const wrap=document.getElementById('cw');
+const scene=new THREE.Scene();
+scene.background=new THREE.Color(0x0f1115);
+const camera=new THREE.PerspectiveCamera(45,1,0.1,2000);
+const renderer=new THREE.WebGLRenderer({antialias:true});
+wrap.appendChild(renderer.domElement);
+renderer.domElement.style.display='block';
+function resize(){
+  const w=wrap.clientWidth||400,h=wrap.clientHeight||660;
+  renderer.setSize(w,h);camera.aspect=w/h;camera.updateProjectionMatrix();
+}
+new ResizeObserver(resize).observe(wrap);
+scene.add(new THREE.AmbientLight(0xffffff,0.65));
+const dl=new THREE.DirectionalLight(0xffffff,0.85);dl.position.set(5,10,7);scene.add(dl);
+scene.add(new THREE.DirectionalLight(0x88aaff,0.3)).position.set(-5,-5,-5);
+
+let camDist=60,camTheta=0.7,camPhi=1.0,viewMode='3d';
+let orbitDrag=false,lastX=0,lastY=0;
+function updateCamera(){
+  camera.position.set(
+    camDist*Math.sin(camPhi)*Math.sin(camTheta),
+    camDist*Math.cos(camPhi),
+    camDist*Math.sin(camPhi)*Math.cos(camTheta)
+  );
+  camera.lookAt(0,0,0);
+}
+function setView(m){
+  viewMode=m;
+  ['v3d','vtop','vbot'].forEach(id=>document.getElementById(id).className='');
+  if(m==='3d')  {document.getElementById('v3d').className='act';}
+  if(m==='top') {document.getElementById('vtop').className='act';camPhi=0.06;camTheta=0;}
+  if(m==='bot') {document.getElementById('vbot').className='act';camPhi=Math.PI-0.06;camTheta=Math.PI;}
+}
+document.getElementById('v3d').onclick=()=>setView('3d');
+document.getElementById('vtop').onclick=()=>setView('top');
+document.getElementById('vbot').onclick=()=>setView('bot');
+
+/* ══ CONSTANTS ══ */
+const CELL_R=2.0, CELL_H=9.5, STEP=CELL_R*2.18;
+const STRIP_H=0.28;
+
+/* ══ MATERIALS ══ */
+const capBodyGeo =new THREE.CylinderGeometry(CELL_R,CELL_R,CELL_H*0.07,24);
+const valveRingGeo=new THREE.TorusGeometry(CELL_R*0.62,CELL_R*0.07,8,24);
+const valveDimGeo =new THREE.CylinderGeometry(CELL_R*0.45,CELL_R*0.5,CELL_H*0.03,20);
+const valveDotGeo =new THREE.CylinderGeometry(CELL_R*0.12,CELL_R*0.12,CELL_H*0.05,12);
+const grooveGeo   =new THREE.BoxGeometry(CELL_R*1.3,CELL_H*0.02,CELL_R*0.06);
+const negDimGeo   =new THREE.CylinderGeometry(CELL_R*0.7,CELL_R*0.72,CELL_H*0.02,20);
+const hlRingGeo   =new THREE.TorusGeometry(CELL_R+0.3,0.18,8,32);
+
+const mCap   =new THREE.MeshStandardMaterial({color:0xdcdcdc,metalness:0.7,roughness:0.28});
+const mValve =new THREE.MeshStandardMaterial({color:0x9a2020,metalness:0.4,roughness:0.45});
+const mGroove=new THREE.MeshStandardMaterial({color:0x707070,metalness:0.5,roughness:0.5});
+const mNegCap=new THREE.MeshStandardMaterial({color:0xc8c8c8,metalness:0.75,roughness:0.25});
+const mGold  =new THREE.MeshStandardMaterial({color:0xd4a23c,metalness:0.95,roughness:0.07,side:THREE.DoubleSide});
+const mSilver=new THREE.MeshStandardMaterial({color:0xb0b5be,metalness:0.95,roughness:0.07,side:THREE.DoubleSide});
+const mHover =new THREE.MeshStandardMaterial({color:0xff4040,metalness:0.4,roughness:0.3,side:THREE.DoubleSide});
+const mPrev  =new THREE.MeshStandardMaterial({color:0x5ec8ff,transparent:true,opacity:0.45,depthWrite:false,side:THREE.DoubleSide});
+const mHlGrn =new THREE.MeshStandardMaterial({color:0x44ff88,emissive:0x22aa44,metalness:0,roughness:0.5});
+const mHlOrange=new THREE.MeshStandardMaterial({color:0xffaa22,emissive:0xcc6600,metalness:0,roughness:0.5});
+
+function buildPosCap(){
+  const g=new THREE.Group();
+  g.add(new THREE.Mesh(capBodyGeo,mCap));
+  const d=new THREE.Mesh(valveDimGeo,mValve);d.position.y=CELL_H*0.045;g.add(d);
+  const r=new THREE.Mesh(valveRingGeo,mGroove);r.rotation.x=Math.PI/2;r.position.y=CELL_H*0.06;g.add(r);
+  const dot=new THREE.Mesh(valveDotGeo,mValve);dot.position.y=CELL_H*0.07;g.add(dot);
+  for(let i=0;i<4;i++){const gv=new THREE.Mesh(grooveGeo,mGroove);gv.position.y=CELL_H*0.06;gv.rotation.y=Math.PI/4+i*Math.PI/2;g.add(gv);}
+  return g;
+}
+function buildNegCap(){
+  const g=new THREE.Group();
+  g.add(new THREE.Mesh(capBodyGeo,mNegCap));
+  const d=new THREE.Mesh(negDimGeo,mNegCap);d.position.y=CELL_H*0.04;g.add(d);
+  return g;
+}
+
+/* ══ SCENE GROUPS ══ */
+const orientOverride={}, posOverride={};
+const cellMeshes=[];
+let cellGroup   =new THREE.Group();scene.add(cellGroup);
+let stripGroup  =new THREE.Group();scene.add(stripGroup);
+let previewGroup=new THREE.Group();scene.add(previewGroup);
+let hlGroup     =new THREE.Group();scene.add(hlGroup);   // selection highlight rings
+let wireGroup   =new THREE.Group();scene.add(wireGroup);
+let wirePrevG   =new THREE.Group();scene.add(wirePrevG);
+
+function getOrient(mode,s,p){
+  const k=s+'_'+p;
+  if(orientOverride[k])return orientOverride[k];
+  if(mode==='down')return'down';
+  if(mode==='alt-series')return s%2===0?'up':'down';
+  if(mode==='alt-parallel')return p%2===0?'up':'down';
+  return'up';
+}
+let curS=4,curP=3;
+
+function buildPack(S,P){
+  curS=S;curP=P;
+  scene.remove(cellGroup);cellGroup=new THREE.Group();cellMeshes.length=0;
+  const mode=document.getElementById('orientMode').value;
+  const cellGeo=new THREE.CylinderGeometry(CELL_R,CELL_R,CELL_H,32);
+  const totalW=(P-1)*STEP,totalD=(S-1)*STEP;
+  const colors=[0x9b6bbf,0x5ec8ff,0x58c946,0xffd166,0xff9f43,0xff5c5c];
+  for(let s=0;s<S;s++){
+    const mat=new THREE.MeshStandardMaterial({color:colors[s%colors.length],metalness:0.3,roughness:0.42});
+    for(let p=0;p<P;p++){
+      const key=s+'_'+p;
+      const orient=getOrient(mode,s,p);
+      const def={x:p*STEP-totalW/2,z:s*STEP-totalD/2};
+      const pos=posOverride[key]||def;
+      const cw=new THREE.Group();cw.position.set(pos.x,0,pos.z);
+      const cell=new THREE.Mesh(cellGeo,mat);cw.add(cell);
+      const pc=buildPosCap(),nc=buildNegCap();
+      if(orient==='up'){
+        pc.position.y= CELL_H/2+0.04;
+        nc.position.y=-CELL_H/2-0.04;nc.rotation.x=Math.PI;
+      }else{
+        nc.position.y= CELL_H/2+0.04;nc.rotation.x=0;
+        pc.position.y=-CELL_H/2-0.04;pc.rotation.x=Math.PI;
+      }
+      cw.add(pc);cw.add(nc);
+      cellGroup.add(cw);
+      cellMeshes.push({group:cw,hit:cell,s,p,key});
+    }
+  }
+  scene.add(cellGroup);
+  camDist=Math.max(22,Math.max((P-1)*STEP,(S-1)*STEP,CELL_H)*1.9);
+}
+
+/* ══ AUTO-ALIGN ══ */
+const snapAnims=[];
+function animSnap(ce,tx,tz){
+  const i=snapAnims.findIndex(a=>a.ce===ce);
+  if(i>=0)snapAnims.splice(i,1);
+  snapAnims.push({ce,tx,tz,t:0});
+}
+function tickSnap(){
+  for(let i=snapAnims.length-1;i>=0;i--){
+    const a=snapAnims[i];
+    a.t=Math.min(1,a.t+0.1);
+    const e=1-Math.pow(1-a.t,3);
+    a.ce.group.position.x+=(a.tx-a.ce.group.position.x)*e;
+    a.ce.group.position.z+=(a.tz-a.ce.group.position.z)*e;
+    if(a.t>=1){a.ce.group.position.x=a.tx;a.ce.group.position.z=a.tz;snapAnims.splice(i,1);}
+  }
+  if(snapAnims.length)renderStrips();
+}
+function snapRows(){
+  for(let s=0;s<curS;s++){
+    const cs=cellMeshes.filter(c=>c.s===s);
+    const avgZ=cs.reduce((a,c)=>a+c.group.position.z,0)/cs.length;
+    cs.forEach(c=>{posOverride[c.key]={x:c.group.position.x,z:avgZ};animSnap(c,c.group.position.x,avgZ);});
+  }
+}
+function snapCols(){
+  for(let p=0;p<curP;p++){
+    const cs=cellMeshes.filter(c=>c.p===p);
+    const avgX=cs.reduce((a,c)=>a+c.group.position.x,0)/cs.length;
+    cs.forEach(c=>{posOverride[c.key]={x:avgX,z:c.group.position.z};animSnap(c,avgX,c.group.position.z);});
+  }
+}
+function snapAllFn(){
+  const totalW=(curP-1)*STEP,totalD=(curS-1)*STEP;
+  cellMeshes.forEach(c=>{
+    const tx=c.p*STEP-totalW/2,tz=c.s*STEP-totalD/2;
+    posOverride[c.key]={x:tx,z:tz};animSnap(c,tx,tz);
+  });
+}
+document.getElementById('snapRow').onclick=snapRows;
+document.getElementById('snapCol').onclick=snapCols;
+document.getElementById('snapAll').onclick=snapAllFn;
+
+/* ══════════════════════════════════════════════════
+   NICKEL STRIP — CELL-TO-CELL CLICK MODE
+   
+   Step 1: user clicks first cell  → green ring
+   Step 2: user hovers second cell → orange ring preview
+   Step 3: user clicks second cell → strip confirmed
+
+   Strip geometry: ribbon from cellA.centre → cellB.centre
+   Both endpoints are exact world-space cell positions → no perspective skew.
+   Width is perpendicular to the A→B direction.
+══════════════════════════════════════════════════ */
+
+/* Y of nickel for a given face of a given cell */
+function nickY(face, cellE){
+  const mode=document.getElementById('orientMode').value;
+  const orient=getOrient(mode,cellE.s,cellE.p);
+  // top of the upper cap:  CELL_H/2 + cap_height + small gap
+  const capH=CELL_H*0.07;
+  const topCapY =(CELL_H/2+capH*0.5+0.04);   // centre of top cap
+  const botCapY =-(CELL_H/2+capH*0.5+0.04);  // centre of bot cap
+  const topY=topCapY+capH*0.5+0.06;  // surface of top cap
+  const botY=botCapY-capH*0.5-0.06;  // surface of bot cap
+  if(face==='top') return topY + STRIP_H/2 + 0.04;
+  return botY - STRIP_H/2 - 0.04;
+}
+
+/* Is this face the positive terminal? */
+function faceIsPos(face,cellE){
+  const mode=document.getElementById('orientMode').value;
+  const orient=getOrient(mode,cellE.s,cellE.p);
+  return face==='top'?orient==='up':orient==='down';
+}
+
+/* Build a flat ribbon quad from two cell entries */
+function buildRibbonGeo(cA, cB, hw){
+  const ax=cA.group.position.x, az=cA.group.position.z;
+  const bx=cB.group.position.x, bz=cB.group.position.z;
+  const dx=bx-ax, dz=bz-az;
+  const len=Math.sqrt(dx*dx+dz*dz)||0.001;
+  const px=-dz/len*hw, pz=dx/len*hw;
+  // 4 corners
+  const corners=[
+    {x:ax+px,z:az+pz},{x:bx+px,z:bz+pz},
+    {x:bx-px,z:bz-pz},{x:ax-px,z:az-pz}
+  ];
+  return corners;
+}
+
+function cornersToMesh(corners, y, mat){
+  const v=new Float32Array([
+    corners[0].x,y,corners[0].z,
+    corners[1].x,y,corners[1].z,
+    corners[2].x,y,corners[2].z,
+    corners[3].x,y,corners[3].z,
+  ]);
+  const ix=new Uint16Array([0,1,2,0,2,3]);
+  const geo=new THREE.BufferGeometry();
+  geo.setAttribute('position',new THREE.BufferAttribute(v,3));
+  geo.setIndex(new THREE.BufferAttribute(ix,1));
+  geo.computeVertexNormals();
+  return new THREE.Mesh(geo,mat);
+}
+
+function buildHitBox(corners,y){
+  const hh=0.5;
+  const verts=new Float32Array([
+    corners[0].x,y-hh,corners[0].z, corners[1].x,y-hh,corners[1].z,
+    corners[2].x,y-hh,corners[2].z, corners[3].x,y-hh,corners[3].z,
+    corners[0].x,y+hh,corners[0].z, corners[1].x,y+hh,corners[1].z,
+    corners[2].x,y+hh,corners[2].z, corners[3].x,y+hh,corners[3].z,
+  ]);
+  const ix=new Uint16Array([
+    0,1,2,0,2,3, 4,5,6,4,6,7,
+    0,1,5,0,5,4, 1,2,6,1,6,5, 2,3,7,2,7,6, 3,0,4,3,4,7,
+  ]);
+  const geo=new THREE.BufferGeometry();
+  geo.setAttribute('position',new THREE.BufferAttribute(verts,3));
+  geo.setIndex(new THREE.BufferAttribute(ix,1));
+  const m=new THREE.Mesh(geo,new THREE.MeshBasicMaterial({visible:false,side:THREE.DoubleSide}));
+  m.userData.isHit=true;return m;
+}
+
+/* Build one strip group for ONE face */
+function buildOneFace(cA,cB,face,hw,matOverride){
+  const y=nickY(face,cA);
+  const isPos=faceIsPos(face,cA);
+  const mat=matOverride||(isPos?mGold:mSilver);
+  const corners=buildRibbonGeo(cA,cB,hw);
+  const g=new THREE.Group();
+  g.add(cornersToMesh(corners,y,mat));
+  // thin edge shine
+  const shineMat=new THREE.MeshStandardMaterial({
+    color:isPos?0xffe8b0:0xe8ecf2,metalness:1,roughness:0.04,side:THREE.DoubleSide
+  });
+  const cIn=buildRibbonGeo(cA,cB,hw-0.12);
+  const eL=[corners[0],corners[1],cIn[1],cIn[0]];
+  const eR=[cIn[3],cIn[2],corners[2],corners[3]];
+  g.add(cornersToMesh(eL,y+STRIP_H*0.4,shineMat));
+  g.add(cornersToMesh(eR,y+STRIP_H*0.4,shineMat));
+  // hit
+  const hit=buildHitBox(corners,y);
+  g.add(hit);g.userData.hit=hit;g.userData.isPos=isPos;
+  return g;
+}
+
+/* Full strip (1 or 2 faces) */
+function buildStripGroup(st,matOverride){
+  const g=new THREE.Group();
+  const faces=st.face==='both'?['top','bottom']:[st.face];
+  const subs=[];
+  // Resolve cell entries
+  const cA=cellMeshes.find(c=>c.key===st.keyA);
+  const cB=cellMeshes.find(c=>c.key===st.keyB);
+  if(!cA||!cB)return null;
+  faces.forEach(f=>{
+    const sg=buildOneFace(cA,cB,f,st.hw,matOverride);
+    g.add(sg);subs.push(sg);
+  });
+  g.userData.subs=subs;
+  g.userData.hits=subs.map(sg=>sg.userData.hit).filter(Boolean);
+  return g;
+}
+
+/* Preview ribbon during hover */
+function buildPreview(cA,cB,face,hw){
+  clearPreview();
+  const g=new THREE.Group();
+  const faces=face==='both'?['top','bottom']:[face];
+  faces.forEach(f=>{
+    const y=nickY(f,cA);
+    const corners=buildRibbonGeo(cA,cB,hw);
+    g.add(cornersToMesh(corners,y,mPrev));
+  });
+  previewGroup.add(g);
+}
+function clearPreview(){previewGroup.children.slice().forEach(c=>previewGroup.remove(c));}
+
+/* Selection highlight rings */
+function setHighlight(cellE, mat){
+  const ring=new THREE.Mesh(hlRingGeo,mat);
+  ring.rotation.x=Math.PI/2;
+  ring.position.set(cellE.group.position.x, CELL_H/2+0.6, cellE.group.position.z);
+  hlGroup.add(ring);
+  return ring;
+}
+function clearHighlights(){hlGroup.children.slice().forEach(c=>hlGroup.remove(c));}
+
+/* ── strips storage & render ── */
+const strips=[];
+
+function renderStrips(){
+  stripGroup.children.slice().forEach(c=>stripGroup.remove(c));
+  strips.forEach(st=>{
+    st.group=buildStripGroup(st);
+    if(st.group)stripGroup.add(st.group);
+  });
+  document.getElementById('undoStrip').disabled=strips.length===0;
+}
+function rebuildOneStrip(st){
+  if(st.group)stripGroup.remove(st.group);
+  st.group=buildStripGroup(st);
+  if(st.group)stripGroup.add(st.group);
+}
+
+/* Hover for delete */
+function allHits(){
+  const out=[];
+  strips.forEach((st,i)=>{
+    if(st.group&&st.group.userData.hits)
+      st.group.userData.hits.forEach(h=>out.push({h,i}));
+  });
+  return out;
+}
+const rcHit=new THREE.Raycaster();
+function hitStripIdx(cx,cy){
+  const all=allHits();if(!all.length)return-1;
+  const r=renderer.domElement.getBoundingClientRect();
+  rcHit.setFromCamera(new THREE.Vector2(((cx-r.left)/r.width)*2-1,-((cy-r.top)/r.height)*2+1),camera);
+  const hits=rcHit.intersectObjects(all.map(a=>a.h));
+  if(!hits.length)return-1;
+  const h=hits[0].object;
+  return all.find(a=>a.h===h)?.i??-1;
+}
+let hovIdx=null;
+function setHov(idx,on){
+  const st=strips[idx];if(!st?.group)return;
+  st.group.userData.subs.forEach(sg=>{
+    sg.children.forEach(c=>{
+      if(c.userData.isHit)return;
+      if(c.material)c.material=on?mHover:(sg.userData.isPos?mGold:mSilver);
+    });
+  });
+}
+function updateHover(cx,cy){
+  const idx=hitStripIdx(cx,cy);
+  if(idx===hovIdx)return;
+  if(hovIdx!==null)setHov(hovIdx,false);
+  hovIdx=idx>=0?idx:null;
+  if(hovIdx!==null)setHov(hovIdx,true);
+}
+
+/* ══ NICKEL MODE STATE ══
+   Phase: 'idle' | 'waitEnd'
+   nickA = first selected cell entry
+*/
+let nickelMode=false,deleteMode=false;
+let nickPhase='idle',nickA=null,nickHoverCell=null;
+
+const rcCell=new THREE.Raycaster();
+function hitCell(cx,cy){
+  const r=renderer.domElement.getBoundingClientRect();
+  rcCell.setFromCamera(new THREE.Vector2(((cx-r.left)/r.width)*2-1,-((cy-r.top)/r.height)*2+1),camera);
+  const hits=rcCell.intersectObjects(cellMeshes.map(c=>c.hit));
+  return hits.length?cellMeshes.find(c=>c.hit===hits[0].object):null;
+}
+
+function enterNickelDraw(){
+  if(deleteMode)exitDeleteMode();
+  exitWire(false);
+  nickelMode=true;nickPhase='idle';nickA=null;nickHoverCell=null;
+  clearHighlights();clearPreview();
+  document.getElementById('toggleDraw').textContent='✅ 結束繪製';
+  document.getElementById('toggleDraw').className='btn grn on';
+  document.getElementById('cw').className='nickel-start';
+  showBanner('① 點擊<b>起始電芯</b>','#a8e6c1');
+}
+function exitNickelDraw(){
+  nickelMode=false;nickPhase='idle';nickA=null;nickHoverCell=null;
+  clearHighlights();clearPreview();
+  document.getElementById('toggleDraw').textContent='✏️ 開始繪製鎳片';
+  document.getElementById('toggleDraw').className='btn grn';
+  document.getElementById('cw').className='';hideBanner();
+}
+document.getElementById('toggleDraw').onclick=()=>nickelMode?exitNickelDraw():enterNickelDraw();
+
+function enterDeleteMode(){
+  if(nickelMode)exitNickelDraw();exitWire(false);
+  deleteMode=true;
+  document.getElementById('toggleDelete').textContent='🖱️ 點選刪除中（再按退出）';
+  document.getElementById('toggleDelete').className='btn red on';
+  document.getElementById('cw').className='delete-mode';
+  showBanner('🗑️ 移到鎳片高亮 → 點擊刪除','#ffb3b3');
+}
+function exitDeleteMode(){
+  deleteMode=false;hovIdx=null;renderStrips();
+  document.getElementById('toggleDelete').textContent='🖱️ 點選鎳片刪除';
+  document.getElementById('toggleDelete').className='btn red';
+  document.getElementById('cw').className='';hideBanner();
+}
+document.getElementById('toggleDelete').onclick=()=>deleteMode?exitDeleteMode():enterDeleteMode();
+
+document.getElementById('undoStrip').onclick=()=>{
+  if(!strips.length)return;
+  const st=strips.pop();
+  if(st.group)stripGroup.remove(st.group);
+  document.getElementById('undoStrip').disabled=strips.length===0;
+};
+document.getElementById('clearStrips').onclick=()=>{strips.length=0;renderStrips();};
+document.getElementById('stripWidth').oninput=function(){
+  document.getElementById('stripWidthVal').textContent=parseFloat(this.value).toFixed(1);
+};
+
+/* ══ WIRE SYSTEM ══ */
+const wires=[];
+let wireMode=null,wireAnchors=[],wireCurPt=null;
+const W_POS=0xe53935,W_NEG=0x1565c0;
+function updateWireUndo(){document.getElementById('undoWire').disabled=wires.length===0;}
+function a2p(a){
+  const p=[];
+  for(let i=0;i<a.length-1;i++){
+    const s=a[i],e=a[i+1],c={x:e.x,y:s.y,z:s.z};
+    if(Math.abs(c.x-s.x)>0.01)p.push({from:new THREE.Vector3(s.x,s.y,s.z),to:new THREE.Vector3(c.x,c.y,c.z)});
+    if(Math.abs(e.z-c.z)>0.01)p.push({from:new THREE.Vector3(c.x,c.y,c.z),to:new THREE.Vector3(e.x,e.y,e.z)});
+    if(Math.abs(c.x-s.x)<0.01&&Math.abs(e.z-c.z)<0.01)
+      p.push({from:new THREE.Vector3(s.x,s.y,s.z),to:new THREE.Vector3(e.x,e.y,e.z)});
+  }
+  return p;
+}
+function tube(f,t,r,mat){
+  const d=new THREE.Vector3().subVectors(t,f),l=d.length();if(l<0.01)return null;
+  const m=new THREE.Mesh(new THREE.CylinderGeometry(r,r,l,8),mat);
+  m.position.copy(new THREE.Vector3().addVectors(f,t).multiplyScalar(0.5));
+  m.quaternion.setFromUnitVectors(new THREE.Vector3(0,1,0),d.normalize());
+  return m;
+}
+function sph(pt,r,mat){const m=new THREE.Mesh(new THREE.SphereGeometry(r,8,6),mat);m.position.copy(pt);return m;}
+function buildWire(anch,thk,col,grp){
+  if(anch.length<2)return;
+  const r=thk*0.12,mat=new THREE.MeshStandardMaterial({color:col,metalness:0.3,roughness:0.45});
+  a2p(anch).forEach(({from,to})=>{const t2=tube(from,to,r,mat);if(t2)grp.add(t2);});
+  anch.forEach(a=>grp.add(sph(new THREE.Vector3(a.x,a.y,a.z),r*1.4,mat)));
+}
+function renderWires(){
+  wireGroup.children.slice().forEach(c=>wireGroup.remove(c));
+  wires.forEach(w=>buildWire(w.anchors,w.thk,w.type==='pos'?W_POS:W_NEG,wireGroup));
+  updateWireUndo();
+}
+function renderWirePrev(){
+  wirePrevG.children.slice().forEach(c=>wirePrevG.remove(c));
+  if(!wireMode||!wireAnchors.length||!wireCurPt)return;
+  const thk=parseFloat(document.getElementById(wireMode==='pos'?'posWireThk':'negWireThk').value)||2;
+  const r=thk*0.12,mat=new THREE.MeshStandardMaterial({color:wireMode==='pos'?W_POS:W_NEG,transparent:true,opacity:0.5,depthWrite:false});
+  a2p([...wireAnchors,wireCurPt]).forEach(({from,to})=>{const t2=tube(from,to,r,mat);if(t2)wirePrevG.add(t2);});
+}
+const wRc=new THREE.Raycaster(),wHit=new THREE.Vector3();
+function toWirePt(cx,cy){
+  const r=renderer.domElement.getBoundingClientRect();
+  wRc.setFromCamera(new THREE.Vector2(((cx-r.left)/r.width)*2-1,-((cy-r.top)/r.height)*2+1),camera);
+  wRc.ray.intersectPlane(new THREE.Plane(new THREE.Vector3(0,1,0),-(CELL_H/2+1.5)),wHit);
+  return wHit.clone();
+}
+function enterWire(type){
+  exitNickelDraw();exitDeleteMode();
+  wireMode=type;wireAnchors=[];wireCurPt=null;
+  wirePrevG.children.slice().forEach(c=>wirePrevG.remove(c));
+  document.getElementById('cw').className='wire-mode';
+  showBanner((type==='pos'?'🔴 <b>正極線</b>':'🔵 <b>負極線</b>')+' ── 點擊加錨點，雙擊/Enter 完成','type'==='pos'?'#ff9090':'#90b8ff');
+  updWBtns();
+}
+function exitWire(save){
+  if(wireMode&&save&&wireAnchors.length>=2){
+    const thk=parseFloat(document.getElementById(wireMode==='pos'?'posWireThk':'negWireThk').value)||2;
+    wires.push({type:wireMode,anchors:[...wireAnchors],thk});renderWires();
+  }
+  wireMode=null;wireAnchors=[];wireCurPt=null;
+  wirePrevG.children.slice().forEach(c=>wirePrevG.remove(c));
+  document.getElementById('cw').className='';hideBanner();updWBtns();
+}
+function updWBtns(){
+  document.getElementById('togglePosWire').textContent=wireMode==='pos'?'🔴 正極線：雙擊/Enter 完成':'🔴 正極線：點擊開始拉線';
+  document.getElementById('togglePosWire').className='btn posw'+(wireMode==='pos'?' on':'');
+  document.getElementById('toggleNegWire').textContent=wireMode==='neg'?'🔵 負極線：雙擊/Enter 完成':'🔵 負極線：點擊開始拉線';
+  document.getElementById('toggleNegWire').className='btn negw'+(wireMode==='neg'?' on':'');
+}
+document.getElementById('togglePosWire').onclick=()=>wireMode==='pos'?exitWire(true):enterWire('pos');
+document.getElementById('toggleNegWire').onclick=()=>wireMode==='neg'?exitWire(true):enterWire('neg');
+document.getElementById('undoWire').onclick=()=>{if(wires.length){wires.pop();renderWires();}};
+document.getElementById('clearWires').onclick=()=>{wires.length=0;renderWires();};
+document.getElementById('posWireThk').oninput=function(){document.getElementById('posWireThkVal').textContent=this.value;};
+document.getElementById('negWireThk').oninput=function(){document.getElementById('negWireThkVal').textContent=this.value;};
+window.addEventListener('keydown',e=>{
+  if(wireMode){
+    if(e.key==='Enter')exitWire(true);
+    if(e.key==='Escape')exitWire(false);
+  }
+  if(nickelMode&&e.key==='Escape'){exitNickelDraw();}
+});
+
+/* ── banner ── */
+function showBanner(html,col){
+  const b=document.getElementById('banner');b.innerHTML=html;b.style.color=col||'#ddd';b.style.display='block';
+}
+function hideBanner(){document.getElementById('banner').style.display='none';}
+
+/* ══ POINTER EVENTS ══ */
+const raycaster=new THREE.Raycaster(),mouse=new THREE.Vector2();
+const dragPlane=new THREE.Plane(new THREE.Vector3(0,1,0),0),planeHit=new THREE.Vector3();
+let pMode='idle',activeEntry=null,dragOffset=new THREE.Vector3();
+let downX=0,downY=0,movedFar=false,lastClickTime=0;
+
+function setMouse(cx,cy){
+  const r=renderer.domElement.getBoundingClientRect();
+  mouse.x=((cx-r.left)/r.width)*2-1;mouse.y=-((cy-r.top)/r.height)*2+1;
+}
+
+renderer.domElement.addEventListener('mousedown',e=>{
+  downX=e.clientX;downY=e.clientY;movedFar=false;
+
+  /* WIRE */
+  if(wireMode){
+    const now=Date.now(),dbl=now-lastClickTime<300;lastClickTime=now;
+    const pt=toWirePt(e.clientX,e.clientY);
+    if(dbl&&wireAnchors.length>=1)exitWire(true);
+    else{wireAnchors.push({x:pt.x,y:pt.y,z:pt.z});renderWirePrev();}
+    return;
+  }
+
+  /* NICKEL — two-click cell selection */
+  if(nickelMode){
+    const ce=hitCell(e.clientX,e.clientY);
+    if(nickPhase==='idle'){
+      if(!ce)return;
+      nickA=ce;nickPhase='waitEnd';
+      clearHighlights();
+      setHighlight(ce,mHlGrn);
+      document.getElementById('cw').className='nickel-end';
+      showBanner('② 點擊<b>終止電芯</b>（可走斜向）| Esc 取消','#ffd9a3');
+    } else if(nickPhase==='waitEnd'){
+      if(!ce){
+        // clicked empty — cancel
+        nickPhase='idle';nickA=null;clearHighlights();clearPreview();
+        document.getElementById('cw').className='nickel-start';
+        showBanner('① 點擊<b>起始電芯</b>','#a8e6c1');
+        return;
+      }
+      if(ce===nickA){return;} // same cell, ignore
+      // Confirm strip
+      const face=document.getElementById('drawFace').value;
+      const hw=parseFloat(document.getElementById('stripWidth').value)||1.8;
+      const st={keyA:nickA.key,keyB:ce.key,face,hw,group:null};
+      st.group=buildStripGroup(st);
+      if(st.group){stripGroup.add(st.group);strips.push(st);}
+      document.getElementById('undoStrip').disabled=false;
+      // reset for next strip
+      nickPhase='idle';nickA=null;nickHoverCell=null;
+      clearHighlights();clearPreview();
+      document.getElementById('cw').className='nickel-start';
+      showBanner('① 點擊<b>起始電芯</b>','#a8e6c1');
+    }
+    return;
+  }
+
+  /* DELETE */
+  if(deleteMode){
+    const idx=hitStripIdx(e.clientX,e.clientY);
+    if(idx>=0){
+      const st=strips.splice(idx,1)[0];
+      if(st.group)stripGroup.remove(st.group);
+      hovIdx=null;
+      document.getElementById('undoStrip').disabled=strips.length===0;
+    }
+    return;
+  }
+
+  /* NORMAL: orbit / cell drag / flip */
+  setMouse(e.clientX,e.clientY);raycaster.setFromCamera(mouse,camera);
+  const hits=raycaster.intersectObjects(cellMeshes.map(c=>c.hit));
+  if(hits.length){
+    activeEntry=cellMeshes.find(c=>c.hit===hits[0].object);pMode='cell';
+    if(raycaster.ray.intersectPlane(dragPlane,planeHit)&&activeEntry)
+      dragOffset.set(activeEntry.group.position.x-planeHit.x,0,activeEntry.group.position.z-planeHit.z);
+  }else{pMode='orbit';orbitDrag=true;lastX=e.clientX;lastY=e.clientY;}
+});
+
+renderer.domElement.addEventListener('mousemove',e=>{
+  if(Math.abs(e.clientX-downX)>3||Math.abs(e.clientY-downY)>3)movedFar=true;
+
+  if(wireMode&&wireAnchors.length>0){wireCurPt=toWirePt(e.clientX,e.clientY);renderWirePrev();return;}
+
+  /* Nickel hover preview in waitEnd phase */
+  if(nickelMode&&nickPhase==='waitEnd'&&nickA){
+    const ce=hitCell(e.clientX,e.clientY);
+    if(ce&&ce!==nickA&&ce!==nickHoverCell){
+      nickHoverCell=ce;
+      clearHighlights();
+      setHighlight(nickA,mHlGrn);
+      setHighlight(ce,mHlOrange);
+      const face=document.getElementById('drawFace').value;
+      const hw=parseFloat(document.getElementById('stripWidth').value)||1.8;
+      buildPreview(nickA,ce,face,hw);
+    } else if(!ce){
+      if(nickHoverCell){nickHoverCell=null;clearPreview();clearHighlights();setHighlight(nickA,mHlGrn);}
+    }
+    return;
+  }
+
+  if(deleteMode){updateHover(e.clientX,e.clientY);return;}
+
+  if(pMode==='orbit'&&orbitDrag&&viewMode==='3d'){
+    camTheta-=(e.clientX-lastX)*0.005;
+    camPhi=Math.max(0.06,Math.min(Math.PI-0.06,camPhi-(e.clientY-lastY)*0.005));
+    lastX=e.clientX;lastY=e.clientY;
+  }
+  if(pMode==='cell'&&activeEntry){
+    setMouse(e.clientX,e.clientY);raycaster.setFromCamera(mouse,camera);
+    if(raycaster.ray.intersectPlane(dragPlane,planeHit)){
+      activeEntry.group.position.x=planeHit.x+dragOffset.x;
+      activeEntry.group.position.z=planeHit.z+dragOffset.z;
+    }
+  }
+});
+
+window.addEventListener('mouseup',()=>{
+  if(wireMode||nickelMode||deleteMode)return;
+  if(pMode==='cell'&&activeEntry){
+    if(movedFar){
+      posOverride[activeEntry.key]={x:activeEntry.group.position.x,z:activeEntry.group.position.z};
+      renderStrips();
+    }else{
+      const mode=document.getElementById('orientMode').value;
+      const cur=getOrient(mode,activeEntry.s,activeEntry.p);
+      orientOverride[activeEntry.key]=cur==='up'?'down':'up';
+      update();
+    }
+  }
+  pMode='idle';activeEntry=null;orbitDrag=false;
+});
+
+renderer.domElement.addEventListener('wheel',e=>{
+  e.preventDefault();camDist=Math.max(10,Math.min(250,camDist+e.deltaY*0.07));
+},{passive:false});
+
+document.getElementById('resetLayout').onclick=()=>{
+  Object.keys(posOverride).forEach(k=>delete posOverride[k]);update();
+};
+document.getElementById('orientMode').addEventListener('change',()=>{
+  Object.keys(orientOverride).forEach(k=>delete orientOverride[k]);update();
+});
+
+/* ══ STATS ══ */
+function fmt(n,d=0){return n.toLocaleString(undefined,{maximumFractionDigits:d});}
+function update(){
+  const S=+document.getElementById('sSlider').value,P=+document.getElementById('pSlider').value;
+  const V=parseFloat(document.getElementById('cellV').value)||0;
+  const Ah=parseFloat(document.getElementById('cellAh').value)||0;
+  document.getElementById('sVal').textContent=S;
+  document.getElementById('pVal').textContent=P;
+  document.getElementById('outCount').textContent=S*P;
+  document.getElementById('outV').textContent=fmt(S*V,1)+' V';
+  document.getElementById('outAh').textContent=fmt(P*Ah,0)+' mAh';
+  document.getElementById('outWh').textContent=fmt(S*V*P*Ah/1000,1)+' Wh';
+  buildPack(S,P);renderStrips();renderWires();
+}
+['sSlider','pSlider','cellV','cellAh'].forEach(id=>document.getElementById(id).addEventListener('input',update));
+
+function animate(){
+  requestAnimationFrame(animate);
+  tickSnap();
+  updateCamera();
+  renderer.render(scene,camera);
+}
+resize();update();animate();
+})();
+</script>
