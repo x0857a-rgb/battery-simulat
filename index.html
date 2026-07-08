@@ -497,19 +497,27 @@ const dl2=new THREE.DirectionalLight(0x88aaff,0.3);dl2.position.set(-5,-5,-5);sc
 let camDist=60,camTheta=0.7,camPhi=1.0,viewMode='3d';
 let orbitDrag=false,lastX=0,lastY=0;
 function updateCamera(){
-  camera.position.set(
-    camDist*Math.sin(camPhi)*Math.sin(camTheta),
-    camDist*Math.cos(camPhi),
-    camDist*Math.sin(camPhi)*Math.cos(camTheta)
-  );
+  // 完全不限制 camPhi，讓使用者可以繞到底部背面
+  const x=camDist*Math.sin(camPhi)*Math.sin(camTheta);
+  const y=camDist*Math.cos(camPhi);
+  const z=camDist*Math.sin(camPhi)*Math.cos(camTheta);
+  camera.position.set(x,y,z);
+  // 當相機在底部時（y<0），up vector 要翻轉，否則畫面會上下顛倒
+  const sinPhi=Math.sin(camPhi);
+  if(Math.abs(sinPhi)<0.08){
+    // 接近極點時用 theta 方向做 up
+    camera.up.set(Math.sin(camTheta),0,Math.cos(camTheta));
+  } else {
+    camera.up.set(0, camPhi<Math.PI/2||camPhi>Math.PI*3/2 ? 1:-1, 0);
+  }
   camera.lookAt(0,0,0);
 }
 function setView(m){
   viewMode=m;
   ['v3d','vtop','vbot'].forEach(id=>document.getElementById(id).className='');
   if(m==='3d')  document.getElementById('v3d').className='act';
-  if(m==='top'){document.getElementById('vtop').className='act';camPhi=0.06;camTheta=0;}
-  if(m==='bot'){document.getElementById('vbot').className='act';camPhi=Math.PI-0.06;camTheta=Math.PI;}
+  if(m==='top'){document.getElementById('vtop').className='act';camPhi=0.001;camTheta=0;}
+  if(m==='bot'){document.getElementById('vbot').className='act';camPhi=Math.PI-0.001;camTheta=Math.PI;}
 }
 document.getElementById('v3d').onclick=()=>setView('3d');
 document.getElementById('vtop').onclick=()=>setView('top');
@@ -870,7 +878,22 @@ function renderWirePrev(){
 const wRc=new THREE.Raycaster(),wHit=new THREE.Vector3();
 function toWirePt(cx,cy){
   wRc.setFromCamera(screenXY(cx,cy),camera);
-  wRc.ray.intersectPlane(new THREE.Plane(new THREE.Vector3(0,1,0),-(CELL_H/2+1.5)),wHit);
+  // 先嘗試打到電芯，若打到就貼到電芯的極耳高度
+  const cellHits=wRc.intersectObjects(cellMeshes.map(c=>c.hit));
+  if(cellHits.length){
+    const ce=cellMeshes.find(c=>c.hit===cellHits[0].object);
+    if(ce){
+      // 根據目前視角決定要接上面還是下面極耳
+      const fromTop=camera.position.y>0;
+      const capH=CELL_H*0.07;
+      const termY=fromTop?(CELL_H/2+capH+0.3):-(CELL_H/2+capH+0.3);
+      return new THREE.Vector3(ce.group.position.x,termY,ce.group.position.z);
+    }
+  }
+  // fallback: 投影到水平面，根據相機在上方或下方選對應的 Y
+  const fromTop=camera.position.y>0;
+  const planeY=fromTop?(CELL_H/2+1.5):-(CELL_H/2+1.5);
+  wRc.ray.intersectPlane(new THREE.Plane(new THREE.Vector3(0,1,0),-planeY),wHit);
   return wHit.clone();
 }
 function enterWire(type){
@@ -1013,7 +1036,7 @@ function onPointerMove(cx,cy){
 
   if(pMode==='orbit'&&orbitDrag&&viewMode==='3d'){
     camTheta-=(cx-lastX)*0.005;
-    camPhi=Math.max(0.06,Math.min(Math.PI-0.06,camPhi-(cy-lastY)*0.005));
+    camPhi=camPhi-(cy-lastY)*0.005;
     lastX=cx;lastY=cy;
   }
   if(pMode==='cell'&&activeEntry){
@@ -1143,7 +1166,7 @@ renderer.domElement.addEventListener('touchmove',e=>{e.stopPropagation();
   if(fabTouchMode==='rotate'){
     if(viewMode==='3d'){
       camTheta-=(cx-lastX)*0.005;
-      camPhi=Math.max(0.06,Math.min(Math.PI-0.06,camPhi-(cy-lastY)*0.005));
+      camPhi=camPhi-(cy-lastY)*0.005;
       lastX=cx;lastY=cy;
     }
   } else {
