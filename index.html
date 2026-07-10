@@ -610,44 +610,106 @@ function buildPack(S,P){
   camDist=Math.max(22,Math.max((P-1)*STEP,(S-1)*STEP,CELL_H)*1.9);
 }
 
-/* ══ AUTO-ALIGN ══ */
+/* ══ AUTO-ALIGN — 最終穩定版 ══ */
 const snapAnims=[];
 function animSnap(ce,tx,tz){
-  const i=snapAnims.findIndex(a=>a.ce===ce);if(i>=0)snapAnims.splice(i,1);
+  const i=snapAnims.findIndex(a=>a.ce===ce);
+  if(i>=0)snapAnims.splice(i,1);
   snapAnims.push({ce,tx,tz,t:0});
 }
 function tickSnap(){
   for(let i=snapAnims.length-1;i>=0;i--){
-    const a=snapAnims[i];a.t=Math.min(1,a.t+0.1);
+    const a=snapAnims[i];
+    a.t=Math.min(1,a.t+0.1);
     const e=1-Math.pow(1-a.t,3);
     a.ce.group.position.x+=(a.tx-a.ce.group.position.x)*e;
     a.ce.group.position.z+=(a.tz-a.ce.group.position.z)*e;
-    if(a.t>=1){a.ce.group.position.x=a.tx;a.ce.group.position.z=a.tz;snapAnims.splice(i,1);}
+    if(a.t>=1){
+      a.ce.group.position.x=a.tx;
+      a.ce.group.position.z=a.tz;
+      snapAnims.splice(i,1);
+    }
   }
   if(snapAnims.length)renderStrips();
 }
-function snapRows(){
-  for(let s=0;s<curS;s++){
-    const cs=cellMeshes.filter(c=>c.s===s);
-    const avgZ=cs.reduce((a,c)=>a+c.group.position.z,0)/cs.length;
-    cs.forEach(c=>{posOverride[c.key]={x:c.group.position.x,z:avgZ};animSnap(c,c.group.position.x,avgZ);});
+
+/*
+  對齊核心思路：
+  ① 把所有電芯「目前 X 座標」由小到大排序，用 STEP 間距分配新 X
+  ② 把所有電芯「目前 Z 座標」由小到大排序，用 STEP 間距分配新 Z
+  ③ 以目前重心為中心點
+  → 不管怎麼移，只要相對順序不變，對齊後一定整齊不重疊
+*/
+
+/* 把一組值排序後，用 STEP 間距重新分配，以平均值為中心
+   回傳 Map: 原始 index → 新座標 */
+function assignByOrder(vals, step){
+  const indexed=vals.map((v,i)=>({v,i}));
+  indexed.sort((a,b)=>a.v-b.v);
+  const n=vals.length;
+  // 找出「聚類」：相鄰距離 < step*0.8 的歸同一群，否則新開一群
+  const groups=[]; // groups[i] = 群號
+  const groupOf=new Array(n);
+  let g=0;
+  groupOf[0]=0;
+  for(let k=1;k<n;k++){
+    if(indexed[k].v - indexed[k-1].v > step*0.8) g++;
+    groupOf[k]=g;
   }
+  const numGroups=g+1;
+  // 每群分配一個格子座標
+  const center=vals.reduce((a,b)=>a+b,0)/n;
+  const halfSpan=(numGroups-1)*step/2;
+  const groupCoord=(gid)=>center - halfSpan + gid*step;
+  // 建立 originalIndex → 新座標 的 map
+  const result=new Array(n);
+  indexed.forEach((item,k)=>{
+    result[item.i]=groupCoord(groupOf[k]);
+  });
+  return result;
 }
-function snapCols(){
-  for(let p=0;p<curP;p++){
-    const cs=cellMeshes.filter(c=>c.p===p);
-    const avgX=cs.reduce((a,c)=>a+c.group.position.x,0)/cs.length;
-    cs.forEach(c=>{posOverride[c.key]={x:avgX,z:c.group.position.z};animSnap(c,avgX,c.group.position.z);});
-  }
-}
+
+/* ✦ 全部整齊排列 */
 function snapAllFn(){
-  const totalW=(curP-1)*STEP,totalD=(curS-1)*STEP;
-  cellMeshes.forEach(c=>{
-    const tx=c.p*STEP-totalW/2,tz=c.s*STEP-totalD/2;
-    posOverride[c.key]={x:tx,z:tz};animSnap(c,tx,tz);
+  if(!cellMeshes.length)return;
+  const xs=cellMeshes.map(c=>c.group.position.x);
+  const zs=cellMeshes.map(c=>c.group.position.z);
+  const newXs=assignByOrder(xs,STEP);
+  const newZs=assignByOrder(zs,STEP);
+  cellMeshes.forEach((c,i)=>{
+    const tx=newXs[i], tz=newZs[i];
+    posOverride[c.key]={x:tx,z:tz};
+    animSnap(c,tx,tz);
   });
 }
+
+/* 整列對齊 Z：Z 方向整齊，X 不動 */
+function snapRows(){
+  if(!cellMeshes.length)return;
+  const zs=cellMeshes.map(c=>c.group.position.z);
+  const newZs=assignByOrder(zs,STEP);
+  cellMeshes.forEach((c,i)=>{
+    const tz=newZs[i];
+    posOverride[c.key]={x:c.group.position.x,z:tz};
+    animSnap(c,c.group.position.x,tz);
+  });
+}
+
+/* 整行對齊 X：X 方向整齊，Z 不動 */
+function snapCols(){
+  if(!cellMeshes.length)return;
+  const xs=cellMeshes.map(c=>c.group.position.x);
+  const newXs=assignByOrder(xs,STEP);
+  cellMeshes.forEach((c,i)=>{
+    const tx=newXs[i];
+    posOverride[c.key]={x:tx,z:c.group.position.z};
+    animSnap(c,tx,c.group.position.z);
+  });
+}
+
 document.getElementById('snapRow').onclick=snapRows;
+document.getElementById('snapCol').onclick=snapCols;
+document.getElementById('snapAll').onclick=snapAllFn;;
 document.getElementById('snapCol').onclick=snapCols;
 document.getElementById('snapAll').onclick=snapAllFn;
 
@@ -939,9 +1001,18 @@ function hideBanner(){document.getElementById('banner').style.display='none';}
 
 /* ══ UNIFIED POINTER (mouse + touch) ══ */
 const raycaster=new THREE.Raycaster(),mouse=new THREE.Vector2();
-const dragPlane=new THREE.Plane(new THREE.Vector3(0,1,0),0),planeHit=new THREE.Vector3();
-let pMode='idle',activeEntry=null,dragOffset=new THREE.Vector3();
+const dragPlane=new THREE.Plane(new THREE.Vector3(0,1,0),0);
+// 每次 mousedown 時根據相機位置更新 dragPlane 法向量朝向相機
+function updateDragPlane(){
+  // 法向量永遠朝向相機（上方或下方）
+  const camY=camera.position.y;
+  dragPlane.normal.set(0, camY>=0?1:-1, 0);
+  dragPlane.constant=0; // Y=0 平面
+}
+const planeHit=new THREE.Vector3(), planePrev=new THREE.Vector3();
+let pMode='idle',activeEntry=null;
 let downX=0,downY=0,movedFar=false,lastClickTime=0;
+let dragPrevX=0,dragPrevY=0; // 上一幀的螢幕座標
 
 // Pinch-zoom state
 let pinching=false,pinchDist0=0,camDist0=0;
@@ -1007,12 +1078,13 @@ function onPointerDown(cx,cy,isTap){
   }
 
   /* NORMAL */
+  updateDragPlane();
   setMouse(cx,cy);raycaster.setFromCamera(mouse,camera);
   const hits=raycaster.intersectObjects(cellMeshes.map(c=>c.hit));
   if(hits.length){
     activeEntry=cellMeshes.find(c=>c.hit===hits[0].object);pMode='cell';
-    if(raycaster.ray.intersectPlane(dragPlane,planeHit)&&activeEntry)
-      dragOffset.set(activeEntry.group.position.x-planeHit.x,0,activeEntry.group.position.z-planeHit.z);
+    dragPrevX=cx; dragPrevY=cy;
+    raycaster.ray.intersectPlane(dragPlane,planePrev);
   }else{pMode='orbit';orbitDrag=true;lastX=cx;lastY=cy;}
 }
 
@@ -1035,15 +1107,23 @@ function onPointerMove(cx,cy){
   if(deleteMode){updateHover(cx,cy);return;}
 
   if(pMode==='orbit'&&orbitDrag&&viewMode==='3d'){
-    camTheta-=(cx-lastX)*0.005;
+    camTheta+=(cx-lastX)*0.005;
     camPhi=camPhi-(cy-lastY)*0.005;
     lastX=cx;lastY=cy;
   }
   if(pMode==='cell'&&activeEntry){
     setMouse(cx,cy);raycaster.setFromCamera(mouse,camera);
     if(raycaster.ray.intersectPlane(dragPlane,planeHit)){
-      activeEntry.group.position.x=planeHit.x+dragOffset.x;
-      activeEntry.group.position.z=planeHit.z+dragOffset.z;
+      // Delta 世界座標位移，直接加到電芯位置
+      // 因為 planePrev 和 planeHit 都是世界座標 Y=0 平面的交點
+      // 差值就是世界空間的正確位移，不受視角影響
+      const dx=planeHit.x-planePrev.x;
+      const dz=planeHit.z-planePrev.z;
+      // 下視圖時（相機在下方），X 軸左右鏡像，只反轉 X，Z 不變
+      const flipX=(camera.position.y<0)?-1:1;
+      activeEntry.group.position.x+=dx*flipX;
+      activeEntry.group.position.z+=dz;
+      planePrev.copy(planeHit);
     }
   }
 }
@@ -1165,7 +1245,7 @@ renderer.domElement.addEventListener('touchmove',e=>{e.stopPropagation();
 
   if(fabTouchMode==='rotate'){
     if(viewMode==='3d'){
-      camTheta-=(cx-lastX)*0.005;
+      camTheta+=(cx-lastX)*0.005;
       camPhi=camPhi-(cy-lastY)*0.005;
       lastX=cx;lastY=cy;
     }
